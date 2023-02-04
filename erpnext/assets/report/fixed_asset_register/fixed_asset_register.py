@@ -86,6 +86,7 @@ def get_data(filters):
 			"status",
 			"department",
 			"cost_center",
+			"calculate_depreciation",
 			"purchase_receipt",
 			"asset_category",
 			"purchase_date",
@@ -98,11 +99,7 @@ def get_data(filters):
 		assets_record = frappe.db.get_all("Asset", filters=conditions, fields=fields)
 
 	for asset in assets_record:
-		asset_value = (
-			asset.gross_purchase_amount
-			- flt(asset.opening_accumulated_depreciation)
-			- flt(depreciation_amount_map.get(asset.name))
-		)
+		asset_value = get_asset_value(asset, filters.finance_book)
 		row = {
 			"asset_id": asset.asset_id,
 			"asset_name": asset.asset_name,
@@ -123,6 +120,23 @@ def get_data(filters):
 		data.append(row)
 
 	return data
+
+
+def get_asset_value(asset, finance_book=None):
+	if not asset.calculate_depreciation:
+		return flt(asset.gross_purchase_amount) - flt(asset.opening_accumulated_depreciation)
+
+	result = frappe.get_all(
+		doctype="Asset Finance Book",
+		filters={
+			"parent": asset.asset_id,
+			"finance_book": finance_book or ("is", "not set"),
+		},
+		pluck="value_after_depreciation",
+		limit=1,
+	)
+
+	return result[0] if result else 0.0
 
 
 def prepare_chart_data(data, filters):
@@ -176,15 +190,17 @@ def get_finance_book_value_map(filters):
 	return frappe._dict(
 		frappe.db.sql(
 			""" Select
-		parent, SUM(depreciation_amount)
-		FROM `tabDepreciation Schedule`
+		ads.asset, SUM(depreciation_amount)
+		FROM `tabAsset Depreciation Schedule` ads, `tabDepreciation Schedule` ds
 		WHERE
-			parentfield='schedules'
-			AND schedule_date<=%s
-			AND journal_entry IS NOT NULL
-			AND ifnull(finance_book, '')=%s
-		GROUP BY parent""",
-			(date, cstr(filters.finance_book or "")),
+			ds.parent = ads.name
+			AND ifnull(ads.finance_book, '')=%s
+			AND ads.docstatus=1
+			AND ds.parentfield='depreciation_schedule'
+			AND ds.schedule_date<=%s
+			AND ds.journal_entry IS NOT NULL
+		GROUP BY ads.asset""",
+			(cstr(filters.finance_book or ""), date),
 		)
 	)
 

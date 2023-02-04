@@ -335,7 +335,8 @@ class POSInvoice(SalesInvoice):
 		if (
 			self.change_amount
 			and self.account_for_change_amount
-			and frappe.db.get_value("Account", self.account_for_change_amount, "company") != self.company
+			and frappe.get_cached_value("Account", self.account_for_change_amount, "company")
+			!= self.company
 		):
 			frappe.throw(
 				_("The selected change account {} doesn't belongs to Company {}.").format(
@@ -486,7 +487,7 @@ class POSInvoice(SalesInvoice):
 				customer_price_list, customer_group, customer_currency = frappe.db.get_value(
 					"Customer", self.customer, ["default_price_list", "customer_group", "default_currency"]
 				)
-				customer_group_price_list = frappe.db.get_value(
+				customer_group_price_list = frappe.get_cached_value(
 					"Customer Group", customer_group, "default_price_list"
 				)
 				selling_price_list = (
@@ -532,8 +533,8 @@ class POSInvoice(SalesInvoice):
 
 		if not self.debit_to:
 			self.debit_to = get_party_account("Customer", self.customer, self.company)
-			self.party_account_currency = frappe.db.get_value(
-				"Account", self.debit_to, "account_currency", cache=True
+			self.party_account_currency = frappe.get_cached_value(
+				"Account", self.debit_to, "account_currency"
 			)
 		if not self.due_date and self.customer:
 			self.due_date = get_due_date(self.posting_date, "Customer", self.customer, self.company)
@@ -674,7 +675,7 @@ def get_bin_qty(item_code, warehouse):
 
 def get_pos_reserved_qty(item_code, warehouse):
 	reserved_qty = frappe.db.sql(
-		"""select sum(p_item.qty) as qty
+		"""select sum(p_item.stock_qty) as qty
 		from `tabPOS Invoice` p, `tabPOS Invoice Item` p_item
 		where p.name = p_item.parent
 		and ifnull(p.consolidated_invoice, '') = ''

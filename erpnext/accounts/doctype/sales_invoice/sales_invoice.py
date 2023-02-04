@@ -373,7 +373,7 @@ class SalesInvoice(SellingController):
 		if self.update_stock == 1:
 			self.repost_future_sle_and_gle()
 
-		frappe.db.set(self, "status", "Cancelled")
+		self.db_set("status", "Cancelled")
 		self.db_set("repost_required", 0)
 
 		if (
@@ -571,13 +571,14 @@ class SalesInvoice(SellingController):
 
 			# validate if deferred revenue is enabled for any item
 			# Don't allow to update the invoice if deferred revenue is enabled
-			for item in self.get("items"):
-				if item.enable_deferred_revenue:
-					frappe.throw(
-						_(
-							"Deferred Revenue is enabled for item {0}. You cannot update the invoice after submission."
-						).format(item.item_code)
-					)
+			if needs_repost:
+				for item in self.get("items"):
+					if item.enable_deferred_revenue:
+						frappe.throw(
+							_(
+								"Deferred Revenue is enabled for item {0}. You cannot update the invoice after submission."
+							).format(item.item_code)
+						)
 
 			self.db_set("repost_required", needs_repost)
 
@@ -1184,11 +1185,24 @@ class SalesInvoice(SellingController):
 						if asset.calculate_depreciation:
 							posting_date = frappe.db.get_value("Sales Invoice", self.return_against, "posting_date")
 							reverse_depreciation_entry_made_after_disposal(asset, posting_date)
-							reset_depreciation_schedule(asset, self.posting_date)
+							notes = _(
+								"This schedule was created when Asset {0} was returned after being sold through Sales Invoice {1}."
+							).format(
+								get_link_to_form(asset.doctype, asset.name),
+								get_link_to_form(self.doctype, self.get("name")),
+							)
+							reset_depreciation_schedule(asset, self.posting_date, notes)
+							asset.reload()
 
 					else:
 						if asset.calculate_depreciation:
-							depreciate_asset(asset, self.posting_date)
+							notes = _(
+								"This schedule was created when Asset {0} was sold through Sales Invoice {1}."
+							).format(
+								get_link_to_form(asset.doctype, asset.name),
+								get_link_to_form(self.doctype, self.get("name")),
+							)
+							depreciate_asset(asset, self.posting_date, notes)
 							asset.reload()
 
 						fixed_asset_gl_entries = get_gl_entries_on_asset_disposal(
@@ -1393,7 +1407,11 @@ class SalesInvoice(SellingController):
 
 	def make_write_off_gl_entry(self, gl_entries):
 		# write off entries, applicable if only pos
-		if self.write_off_account and flt(self.write_off_amount, self.precision("write_off_amount")):
+		if (
+			self.is_pos
+			and self.write_off_account
+			and flt(self.write_off_amount, self.precision("write_off_amount"))
+		):
 			write_off_account_currency = get_account_currency(self.write_off_account)
 			default_cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
 
@@ -2160,6 +2178,8 @@ def make_inter_company_transaction(doctype, source_name, target_doc=None):
 		if source.doctype == "Purchase Order Item" and target.doctype == "Sales Order Item":
 			target.purchase_order = source.parent
 			target.purchase_order_item = source.name
+			target.material_request = source.material_request
+			target.material_request_item = source.material_request_item
 
 		if (
 			source.get("purchase_order")
@@ -2399,7 +2419,7 @@ def get_loyalty_programs(customer):
 	lp_details = get_loyalty_programs(customer)
 
 	if len(lp_details) == 1:
-		frappe.db.set(customer, "loyalty_program", lp_details[0])
+		customer.db_set("loyalty_program", lp_details[0])
 		return lp_details
 	else:
 		return lp_details

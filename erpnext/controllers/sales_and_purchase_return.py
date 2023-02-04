@@ -37,7 +37,7 @@ def validate_return_against(doc):
 		if (
 			ref_doc.company == doc.company
 			and ref_doc.get(party_type) == doc.get(party_type)
-			and ref_doc.docstatus == 1
+			and ref_doc.docstatus.is_submitted()
 		):
 			# validate posting date time
 			return_posting_datetime = "%s %s" % (doc.posting_date, doc.get("posting_time") or "00:00:00")
@@ -305,7 +305,7 @@ def get_returned_qty_map_for_row(return_against, party, row_name, doctype):
 			fields += ["sum(abs(`tab{0}`.received_stock_qty)) as received_stock_qty".format(child_doctype)]
 
 	# Used retrun against and supplier and is_retrun because there is an index added for it
-	data = frappe.db.get_list(
+	data = frappe.get_all(
 		doctype,
 		fields=fields,
 		filters=[
@@ -404,12 +404,17 @@ def make_return_doc(doctype: str, source_name: str, target_doc=None):
 			returned_qty_map = get_returned_qty_map_for_row(
 				source_parent.name, source_parent.supplier, source_doc.name, doctype
 			)
-			target_doc.received_qty = -1 * flt(
-				source_doc.received_qty - (returned_qty_map.get("received_qty") or 0)
-			)
-			target_doc.rejected_qty = -1 * flt(
-				source_doc.rejected_qty - (returned_qty_map.get("rejected_qty") or 0)
-			)
+
+			if doctype == "Subcontracting Receipt":
+				target_doc.received_qty = -1 * flt(source_doc.qty)
+			else:
+				target_doc.received_qty = -1 * flt(
+					source_doc.received_qty - (returned_qty_map.get("received_qty") or 0)
+				)
+				target_doc.rejected_qty = -1 * flt(
+					source_doc.rejected_qty - (returned_qty_map.get("rejected_qty") or 0)
+				)
+
 			target_doc.qty = -1 * flt(source_doc.qty - (returned_qty_map.get("qty") or 0))
 
 			if hasattr(target_doc, "stock_qty"):

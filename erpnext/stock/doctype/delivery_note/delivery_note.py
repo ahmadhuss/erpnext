@@ -228,6 +228,7 @@ class DeliveryNote(SellingController):
 
 	def on_submit(self):
 		self.validate_packed_qty()
+		self.update_pick_list_status()
 
 		# Check for Approving Authority
 		frappe.get_doc("Authorization Control").validate_approving_authority(
@@ -312,6 +313,11 @@ class DeliveryNote(SellingController):
 				has_error = True
 		if has_error:
 			raise frappe.ValidationError
+
+	def update_pick_list_status(self):
+		from erpnext.stock.doctype.pick_list.pick_list import update_pick_list_status
+
+		update_pick_list_status(self.pick_list)
 
 	def check_next_docstatus(self):
 		submit_rv = frappe.db.sql(
@@ -902,6 +908,8 @@ def make_inter_company_transaction(doctype, source_name, target_doc=None):
 					"serial_no": "serial_no",
 					"purchase_order": "purchase_order",
 					"purchase_order_item": "purchase_order_item",
+					"material_request": "material_request",
+					"Material_request_item": "material_request_item",
 				},
 				"field_no_map": ["warehouse"],
 			},
